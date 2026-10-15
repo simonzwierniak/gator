@@ -1,31 +1,46 @@
 package main
 
 import (
+	"database/sql"
 	"gator/internal/config"
-	"fmt"
+	"gator/internal/database"
 	"log"
 	"os"
+
+	_ "github.com/lib/pq"
 )
 
 func main() {
 	cfg, err := config.Read()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("error reading config: %v", err)
 	}
-	appState := state{cfg: &cfg}
+	db, err := sql.Open("postgres", cfg.DBUrl)
+	if err != nil {
+		log.Fatalf("error: connecting to db: %v", err)
+	}
+	defer db.Close()
+	dbQueries := database.New(db)
+
+	appState := &state{
+		db:  dbQueries,
+		cfg: &cfg,
+	}
 	appCommands := commands{
 		registry: make(map[string]func(*state, command) error),
 	}
 	appCommands.register("login", handlerLogin)
-	userArgs := os.Args
-	if len(userArgs) < 2 {
-		fmt.Println("insert a command")
-		os.Exit(1)	
+	appCommands.register("register", handlerRegister)
+
+	if len(os.Args) < 2 {
+		log.Fatal("Usage: cli <command> [args...]")
 	}
-	userCommand := command{name: userArgs[1], args: userArgs[2:]}
-	err = appCommands.run(&appState, userCommand)
+
+	commandName := os.Args[1]
+	commandArgs := os.Args[2:]
+
+	err = appCommands.run(appState, command{name: commandName, args: commandArgs})
 	if err != nil {
-		fmt.Println("error in the process")
-		os.Exit(1)
+		log.Fatal(err)
 	}
 }
